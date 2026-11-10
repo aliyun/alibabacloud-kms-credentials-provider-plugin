@@ -208,7 +208,7 @@
     <dependency>
       <groupId>org.jenkins-ci.plugins</groupId>
       <artifactId>structs</artifactId>
-      <version>1.20</version>
+      <version>343.vdcf37b_a_c81d5</version>
     </dependency>
     <!--
       The only Pipeline dependency the step itself compiles against: Step, StepDescriptor,
