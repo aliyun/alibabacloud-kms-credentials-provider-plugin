@@ -276,7 +276,7 @@
     <dependency>
       <groupId>org.jenkins-ci.plugins</groupId>
       <artifactId>credentials-binding</artifactId>
-      <version>1.18</version>
+      <version>720.v3f6decef43ea_</version>
       <scope>test</scope>
     </dependency>
     <dependency>
