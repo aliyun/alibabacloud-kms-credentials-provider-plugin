@@ -1,0 +1,23 @@
+<div>
+    Comma-separated host patterns that the <code>endpoint</code> argument of
+    <code>withAlibabaCloudKms</code> must match, for example
+    <code>*.aliyuncs.com,kms.internal.example.com</code>. <code>*</code> matches any run of characters,
+    dots included; everything else is literal, and matching is case-insensitive. Leave empty for the
+    default, <code>*.aliyuncs.com</code>.
+    <p>
+        Naming an endpoint is the one part of a KMS call a pipeline author controls with Job/Configure
+        alone, so without this limit a job could make the controller open a connection to a host of its
+        choosing, signed with the controller's own Alibaba Cloud identity, and read that host's reply back
+        through the build log. The <strong>Endpoint</strong> above is not covered: setting it already takes
+        Overall/Administer, as do the environment variable and system property that override it. A step
+        that leaves its own endpoint empty inherits the global one and so is not checked either.
+    </p>
+    <p>
+        Widen it only as far as your pipelines require: an exact host name is stricter than a pattern, and
+        <code>*</code> on its own switches the check off. It bounds which host the controller contacts
+        first, not where that host may redirect it — the Alibaba Cloud SDK follows redirects and offers no
+        switch to stop it. Can also be set with the
+        <code>ALIBABA_CLOUD_KMS_STEP_ENDPOINT_WHITELIST</code> environment variable or the
+        <code>jenkins.alibabacloud-kms.stepEndpointWhitelist</code> system property, which take precedence.
+    </p>
+</div>

@@ -1,0 +1,6 @@
+<?jelly escape-by-default='true'?>
+<div>
+ Alibaba Cloud KMS integration: a read-only credential provider that maps secrets from Alibaba Cloud
+ KMS Secrets Manager into Jenkins credentials, and a pipeline step that injects them as environment
+ variables. Configuration as Code placeholders can be resolved from KMS as well.
+</div>

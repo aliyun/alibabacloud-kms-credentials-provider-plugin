@@ -1,0 +1,26 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form">
+    <f:entry field="secretType" title="Secret Type">
+        <f:select/>
+    </f:entry>
+
+    <!-- checkMethod: the field validator defaults to GET, which doCheckName's @POST rejects with a 404. -->
+    <f:entry title="Name" field="name">
+        <f:textbox checkMethod="post" />
+    </f:entry>
+
+    <f:entry title="Version" field="version">
+        <f:textbox/>
+    </f:entry>
+
+    <!-- checkMethod: as above, for doCheckEnvVariable. -->
+    <f:entry title="Environment Variable" field="envVariable">
+        <f:textbox checkMethod="post" />
+    </f:entry>
+
+    <f:entry title="">
+        <div align="right">
+            <f:repeatableDeleteButton/>
+        </div>
+    </f:entry>
+</j:jelly>

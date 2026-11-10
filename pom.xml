@@ -1,0 +1,400 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.jenkins-ci.plugins</groupId>
+    <artifactId>plugin</artifactId>
+    <version>3.57</version>
+    <relativePath />
+  </parent>
+
+  <!--
+    New Jenkins plugins use io.jenkins.plugins as their group ID. The parent POM still carries the
+    legacy org.jenkins-ci.plugins, so the project overrides it here rather than inheriting it; the
+    two are not the same and the override is intentional.
+  -->
+  <groupId>io.jenkins.plugins</groupId>
+
+  <!--
+    The artifact ID carries no "-plugin" suffix while the GitHub repository does. That split is
+    deliberate and matches the Jenkins naming convention plus the aws-secrets-manager-credentials-provider
+    and azure-keyvault plugins: the ID is what Jenkins and the update site key on, and "plugin" in it is
+    redundant, whereas the repository name uses the suffix to say what kind of repo it is. Every
+    repository reference below therefore derives from ${project.artifactId} rather than restating the
+    name, so the two cannot drift apart. The org segment is "aliyun" because the plugin is first
+    open-sourced under the company GitHub project; when it later moves to the jenkinsci org, only
+    that segment changes.
+  -->
+  <artifactId>alibabacloud-kms-credentials-provider</artifactId>
+  <version>1.0.0</version>
+  <packaging>hpi</packaging>
+
+  <name>Alibaba Cloud KMS Credentials Provider Plugin</name>
+  <description>Alibaba Cloud KMS integration: provides a read-only credential provider that maps KMS Secrets Manager secrets to Jenkins credentials, plus a declarative pipeline step and Configuration as Code secret interpolation. Authenticates with the Alibaba Cloud default credential chain (environment variables such as ALIBABA_CLOUD_ACCESS_KEY_ID / ALIBABA_CLOUD_ACCESS_KEY_SECRET, OIDC, ECS RAM role, ...).</description>
+  <url>https://github.com/aliyun/${project.artifactId}-plugin/</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>lizirui</id>
+      <name>lizirui</name>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/aliyun/${project.artifactId}-plugin.git</connection>
+    <developerConnection>scm:git:git@github.com:aliyun/${project.artifactId}-plugin.git</developerConnection>
+    <tag>${scmTag}</tag>
+    <url>https://github.com/aliyun/${project.artifactId}-plugin</url>
+  </scm>
+
+  <properties>
+    <!--
+      Target Jenkins core 2.138.4. The Alibaba Cloud Credentials Plugin is not available on this core
+      (every published version of it requires 2.190.1), so this plugin authenticates only through the
+      Alibaba Cloud default credential chain and has no dependency on that plugin. This is a Java 8 /
+      Acegi Security era release (Jenkins moved to Spring Security in 2.266), so the code is written to
+      the Java 8 language level and the org.acegisecurity.* API.
+    -->
+    <jenkins.version>2.138.4</jenkins.version>
+    <java.level>8</java.level>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!--
+        Pin upper bounds for messy transitive artifacts pulled in by the Aliyun KMS SDK, to satisfy the
+        enforcer requireUpperBoundDeps rule. gson is the case that bites: kms20160120 brings 2.11.0 while
+        another SDK path brings an older one at the same depth, so Maven breaks the tie by declaration
+        order. Pinning makes the resolved version independent of that order.
+      -->
+      <dependency>
+        <groupId>com.google.code.gson</groupId>
+        <artifactId>gson</artifactId>
+        <version>2.11.0</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.errorprone</groupId>
+        <artifactId>error_prone_annotations</artifactId>
+        <version>2.27.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jetbrains.kotlin</groupId>
+        <artifactId>kotlin-stdlib</artifactId>
+        <version>1.9.10</version>
+      </dependency>
+      <dependency>
+        <groupId>org.jetbrains.kotlin</groupId>
+        <artifactId>kotlin-stdlib-jdk8</artifactId>
+        <version>1.9.10</version>
+      </dependency>
+      <!-- Bundled libraries (see the note on the corresponding dependencies below). -->
+      <dependency>
+        <groupId>com.github.ben-manes.caffeine</groupId>
+        <artifactId>caffeine</artifactId>
+        <version>2.9.3</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-lang3</artifactId>
+        <version>3.9</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- Alibaba Cloud KMS OpenAPI SDK (shared gateway, RAM AK/SK via the default credential chain) -->
+    <dependency>
+      <groupId>com.aliyun</groupId>
+      <artifactId>kms20160120</artifactId>
+      <version>2.3.0</version>
+      <exclusions>
+        <!-- BouncyCastle is provided at runtime by the Jenkins bouncycastle-api plugin; do not bundle it. -->
+        <exclusion>
+          <groupId>org.bouncycastle</groupId>
+          <artifactId>bcpg-jdk18on</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.bouncycastle</groupId>
+          <artifactId>bcprov-jdk18on</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.bouncycastle</groupId>
+          <artifactId>bcutil-jdk18on</artifactId>
+        </exclusion>
+        <!-- JaCoCo is a build-time coverage agent, never needed at runtime. -->
+        <exclusion>
+          <groupId>org.jacoco</groupId>
+          <artifactId>org.jacoco.agent</artifactId>
+        </exclusion>
+        <!--
+          dom4j reaches us only through tea-xml, whose single caller is tea-openapi's error branch for a
+          response typed exactly text/xml;charset=utf-8; KMS answers application/json, and no class in
+          kms20160120 references dom4j, so nothing here parses XML. Bundling it is worse than useless:
+          core ships a patched dom4j 1.6.1-jenkins-4 whose HTMLWriter has the setEnabled(boolean) that
+          commons-jelly calls, plugin classloaders resolve org.dom4j from core, and on JenkinsRule's flat
+          classpath our 2.0.3 wins instead and fails every page render with NoSuchMethodError.
+        -->
+        <exclusion>
+          <groupId>org.dom4j</groupId>
+          <artifactId>dom4j</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <!--
+      Optional: enables KmsSecretSource so the Configuration as Code plugin can interpolate
+      ${secret} placeholders in JCasC YAML from Alibaba Cloud KMS. Marked optional and the
+      extension is @Extension(optional = true), so the plugin still loads when JCasC is absent.
+      1.35 is the release contemporaneous with this core baseline (SecretSource.reveal has the same
+      Optional<String> signature this plugin overrides).
+    -->
+    <dependency>
+      <groupId>io.jenkins</groupId>
+      <artifactId>configuration-as-code</artifactId>
+      <version>1.35</version>
+      <optional>true</optional>
+    </dependency>
+
+    <!--
+      Caffeine and commons-lang3 are bundled directly rather than consumed through their API plugins:
+      caffeine-api requires Jenkins 2.222.1 and commons-lang3-api requires 2.277.1, both above this
+      plugin's 2.138.4 floor. Caffeine 2.9.3 is the last Java 8 line and exposes the same builder /
+      LoadingCache API this plugin uses; Jenkins core of this era ships commons-lang 2.x, not lang3.
+      Plugin classloader isolation keeps the bundled copies from colliding with other plugins.
+    -->
+    <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-lang3</artifactId>
+    </dependency>
+
+    <!--
+      BouncyCastle is only reached on the SM3 signing path (openapiutil's Client.hash instantiates a
+      BouncyCastleProvider for HMAC_SM3, and its signer builds an SM3 HMac), which the shared gateway's
+      HMAC-SHA256 never takes. Kept anyway: dropping it would surface as a NoClassDefFoundError only for
+      callers signing with SM crypto, which is exactly the path nothing here exercises.
+    -->
+    <dependency>
+      <groupId>org.jenkins-ci.plugins</groupId>
+      <artifactId>bouncycastle-api</artifactId>
+      <version>2.18</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins</groupId>
+      <artifactId>credentials</artifactId>
+      <version>2.3.11</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins</groupId>
+      <artifactId>plain-credentials</artifactId>
+      <version>1.7</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins</groupId>
+      <artifactId>ssh-credentials</artifactId>
+      <version>1.17.4</version>
+    </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins</groupId>
+      <artifactId>structs</artifactId>
+      <version>1.20</version>
+    </dependency>
+    <!--
+      The only Pipeline dependency the step itself compiles against: Step, StepDescriptor,
+      GeneralNonBlockingStepExecution, EnvironmentExpander and BodyInvoker all live here. The engine that
+      actually runs a step (workflow-job / workflow-cps) and the bindings the acceptance test drives
+      (credentials-binding) are test-scoped below, so they are no longer recorded in the hpi's
+      Plugin-Dependencies and a controller is not made to install them.
+
+      This one is still mandatory, so Pipeline: Step API remains a hard prerequisite even for a controller
+      that only wants the credentials provider or the JCasC secret source. Marking it <optional>true
+      would drop it from Plugin-Dependencies and finally give the step descriptor's existing
+      @Extension(optional = true) something to do, but that also means KmsStep's own classes go unloadable
+      when the plugin is absent — a behaviour change, not a dependency cleanup.
+    -->
+    <dependency>
+      <groupId>org.jenkins-ci.plugins.workflow</groupId>
+      <artifactId>workflow-step-api</artifactId>
+      <version>2.20</version>
+    </dependency>
+
+    <!-- test dependencies -->
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>4.13.1</version>
+      <scope>test</scope>
+      <exclusions>
+        <!--
+          junit 4.13.1 drags in hamcrest-core 1.3, but jenkins-test-harness 2.65 needs hamcrest 2.2.
+          Dropping the old one lets the harness's 2.2 win, satisfying requireUpperBoundDeps.
+        -->
+        <exclusion>
+          <groupId>org.hamcrest</groupId>
+          <artifactId>hamcrest-core</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>io.jenkins.configuration-as-code</groupId>
+      <artifactId>test-harness</artifactId>
+      <version>1.35</version>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      The Pipeline engine that runs a step, and the bindings the acceptance test drives through
+      withCredentials. Only the tests reach for their classes; nothing in src/main does.
+
+      These must stay ahead of workflow-basic-steps / workflow-durable-task-step below. All of them sit
+      at the same depth, so Maven breaks the tie by declaration order, and these are the ones carrying
+      the newer workflow-api / workflow-support / script-security. Declare the older step libraries first
+      and their transitives win, which requireUpperBoundDeps then rejects.
+    -->
+    <dependency>
+      <groupId>org.jenkins-ci.plugins.workflow</groupId>
+      <artifactId>workflow-cps</artifactId>
+      <version>2.74</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins.workflow</groupId>
+      <artifactId>workflow-job</artifactId>
+      <version>2.36</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins</groupId>
+      <artifactId>credentials-binding</artifactId>
+      <version>1.18</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins.workflow</groupId>
+      <artifactId>workflow-basic-steps</artifactId>
+      <version>2.16</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins.workflow</groupId>
+      <artifactId>workflow-durable-task-step</artifactId>
+      <version>2.28</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>display-info</id>
+            <configuration>
+              <rules>
+                <requireUpperBoundDeps>
+                  <!--
+                    commons-codec and slf4j-api are provided and version-managed by Jenkins core
+                    (1.12 and 1.7.26 at this baseline). The Aliyun KMS SDK transitively wants newer
+                    ones, but the core copy always wins on the runtime classpath, so the upper-bound
+                    rule is a false alarm here. This is the same category as the parent POM's own
+                    excludes for guava / commons-logging / jsr305 / jna, so append rather than replace.
+                  -->
+                  <excludes combine.children="append">
+                    <exclude>commons-codec:commons-codec</exclude>
+                    <exclude>org.slf4j:slf4j-api</exclude>
+                  </excludes>
+                </requireUpperBoundDeps>
+                <!--
+                  The parent POM's bound is open-ended, [1.8.0,), which admits exactly the JDKs that
+                  cannot build this plugin. The code itself is fine on them - `-source 8 -target 8`
+                  compiles and animal-sniffer still passes - but jenkins-test-harness 2.65 and
+                  maven-license-plugin 1.8 both reflect into java.base internals the way only the
+                  pre-module era did. JDK 16 made that denial the default and JDK 17 removed the
+                  illegal-access escape hatch outright, so on a current JDK the build dies in
+                  validate-adjacent places with an InaccessibleObjectException, and every test then
+                  reports only "Could not initialize class TestPluginManager", which reads like a bug
+                  in this plugin rather than in the toolchain. Failing here costs one clear sentence.
+
+                  The upper bound is 12 because Jenkins core 2.138.4 runs on Java 8 and 11, and 11 is
+                  still permissive by default.
+                -->
+                <requireJavaVersion>
+                  <version>[1.8,12)</version>
+                  <message>JDK 8 or 11 required: this plugin builds against Jenkins core 2.138.4, whose test harness and build plugins reflect into java.base the way only a pre-module JDK allows. JDK 16+ denies that and JDK 17 removed the escape hatch, so building there fails with errors that look like bugs in this plugin. Set JAVA_HOME accordingly and rerun.</message>
+                </requireJavaVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <repositories>
+    <repository>
+      <id>repo.jenkins-ci.org</id>
+      <url>https://repo.jenkins-ci.org/public/</url>
+    </repository>
+  </repositories>
+  <pluginRepositories>
+    <pluginRepository>
+      <id>repo.jenkins-ci.org</id>
+      <url>https://repo.jenkins-ci.org/public/</url>
+    </pluginRepository>
+  </pluginRepositories>
+
+  <profiles>
+    <profile>
+      <id>kms-acceptance</id>
+      <activation>
+        <property>
+          <name>kms.acceptance</name>
+          <value>true</value>
+        </property>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <includes>
+                <include>**/*IT.java</include>
+              </includes>
+              <!--
+                Only the activation switch belongs here. kms-acceptance.properties is gitignored, and
+                kms-acceptance.template.properties, the tracked half of the pair, leaves every key that
+                names a cloud resource blank, so nothing here can silently aim a real-write run at one.
+                The target comes from that local file or from -D<key>=<value> on the mvn command line,
+                which reaches the forked JVM. Putting the endpoint here instead would re-create the
+                checked-in default the blank template removes.
+              -->
+              <systemPropertyVariables>
+                <kms.acceptance>true</kms.acceptance>
+              </systemPropertyVariables>
+            </configuration>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>integration-test</goal>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+</project>

@@ -1,0 +1,26 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form">
+    <f:section title="Alibaba Cloud KMS Credentials">
+        <f:entry title="Endpoint" field="endpoint">
+            <f:textbox />
+        </f:entry>
+        <f:entry title="Step endpoint whitelist" field="stepEndpointWhitelist">
+            <f:textbox default="*.aliyuncs.com" />
+        </f:entry>
+        <f:entry title="Tag Key" field="tagKey">
+            <f:textbox default="jenkins:credentials" />
+        </f:entry>
+        <!-- checkMethod: the field validator defaults to GET, which doCheckCacheSeconds' @POST rejects with a 404. -->
+        <f:entry title="Cache time (seconds)" field="cacheSeconds">
+            <f:number min="0" default="300" checkMethod="post" />
+        </f:entry>
+
+        <f:validateButton
+            title="${%Test Connection}" progress="${%Testing...}"
+            method="testConnection" with="endpoint,tagKey" />
+
+        <f:validateButton
+            title="${%Reload cache}" progress="${%Reloading...}"
+            method="reloadCache" />
+    </f:section>
+</j:jelly>

@@ -1,0 +1,87 @@
+<div>
+    KMS matches this value as a <strong>case-sensitive substring</strong> of each secret's tag keys,
+    not as an exact key, so a secret is selected when any of its tag keys contains this text. Keep it
+    long enough to be specific: <code>jenkins</code> also picks up a secret tagged
+    <code>owner:jenkins-ci</code>. Defaults to <code>jenkins:credentials</code>. Can also be set with
+    the <code>ALIBABA_CLOUD_KMS_TAG_KEY</code> environment variable or the
+    <code>jenkins.alibabacloud-kms.tagKey</code> system property, which take precedence over this
+    field — a value typed here has no effect while either is set.
+
+    <p>Every other tag this plugin reads is prefixed with <code>jenkins:credentials:</code>, so that
+    tags of your own on the same secret are never mistaken for configuration:</p>
+    <ul>
+        <li><code>jenkins:credentials:type</code> — the credential kind: <code>string</code> (default),
+            <code>secretFile</code>, <code>username</code>, <code>sshUserPrivateKey</code> or
+            <code>certificate</code>. This is the only tag that selects the kind; the others just supply
+            values to it.</li>
+        <li><code>jenkins:credentials:id</code> — the Jenkins credential id. Falls back to the KMS
+            secret name when the tag is missing or blank.</li>
+        <li><code>jenkins:credentials:scope</code> — <code>GLOBAL</code> (default) or
+            <code>SYSTEM</code>. <strong>Use <code>GLOBAL</code> for anything a job consumes</strong>:
+            a <code>SYSTEM</code> credential is visible only in the Jenkins root context, so
+            <code>withCredentials</code> inside a job cannot find it.</li>
+        <li><code>jenkins:credentials:username</code> — the account name for <code>username</code> and
+            <code>sshUserPrivateKey</code> credentials.</li>
+        <li><code>jenkins:credentials:filename</code> — the file name for <code>secretFile</code>
+            credentials. Defaults to <code>&lt;secret name&gt;.txt</code>.</li>
+        <li><code>jenkins:credentials:passphrase-id</code> — another secret holding the SSH key
+            passphrase.</li>
+        <li><code>jenkins:credentials:password-id</code> — another secret holding the certificate
+            password.</li>
+        <li><code>jenkins:credentials:auto-parse-secret</code> — set to <code>true</code> to split a
+            managed secret's value into an account name and password. See below.</li>
+    </ul>
+
+    <p>Credentials are imported with an empty Jenkins description, so listing never reads individual
+    secret descriptions from KMS.</p>
+
+    <p>Credential discovery has a fixed 30-second window. A lookup after it reloads membership, tags,
+    and pending deletion state in the background and returns the previous list meanwhile, so only the
+    very first lookup for a given configuration waits on KMS; a controller that stops looking
+    credentials up drops the entry after five minutes. A reload that fails keeps the previous list
+    rather than replacing it with an empty one — secret values are still read live, so a secret deleted
+    during a KMS outage fails where it is used instead of disappearing from every picker. Click
+    <strong>Reload cache</strong> to force a reload immediately. A secret scheduled for deletion is not
+    listed at all.</p>
+
+    <p>Unchanged credential objects and their value suppliers separately use the configured
+    <strong>Cache time (seconds)</strong>; this does not alter the 30-second discovery window.</p>
+
+    <h3>Managed secrets</h3>
+    <p>For a managed secret the value is a JSON object rather than a bare string. It is split into the
+    account name and password only when <strong>both</strong>
+    <code>jenkins:credentials:type=username</code> and
+    <code>jenkins:credentials:auto-parse-secret=true</code> are set. The fields read are:</p>
+    <ul>
+        <li><code>Rds</code>, <code>Redis</code>, <code>PolarDB</code> —
+            <code>AccountName</code>/<code>AccountPassword</code></li>
+        <li><code>ECS</code> — <code>UserName</code>/<code>Password</code></li>
+        <li><code>RAMCredentials</code> — <code>AccessKeyId</code>/<code>AccessKeySecret</code></li>
+    </ul>
+
+    <p><code>GetSecretValue</code> returns every managed type as a flat object. The
+    <code>{"Accounts":[{"AccountName":...,"AccountPassword":...}]}</code> shape you may have seen is
+    only the <code>CreateSecret</code> <em>input</em> for an RDS secret; KMS never hands it back, so it
+    is not read here.</p>
+
+    <p>Without the tag, or with any value other than <code>true</code>, the whole value stays the
+    password — the behaviour from before splitting existed. A
+    <code>jenkins:credentials:username</code> tag, when present, always wins over the account name
+    inside the secret, which also means a picker is rendered without reading the secret's value.</p>
+
+    <p>Every other type, <code>Generic</code> included, keeps its whole value as the password whatever
+    <code>jenkins:credentials:auto-parse-secret</code> says, because there is no known field layout to
+    read an account name from.</p>
+
+    <p>Once split, the pair is cached together for <strong>Cache time (seconds)</strong>. When it
+    expires, the next read reloads both halves together: rotation can replace the account name as well
+    as the password, and half of an old pair combined with half of a new one authenticates as nothing
+    at all. A read that fails is remembered for 30 seconds instead — even at a <code>0</code> cache
+    time — so an outage costs one timeout per secret rather than one per credential picker entry.
+    Reload cache makes later lookups create a fresh credential object.</p>
+
+    <p><strong>Note</strong> the <code>withAlibabaCloudKms</code> pipeline step is not gated by
+    <code>jenkins:credentials:auto-parse-secret</code>, because it reads the secret by name and never
+    sees its tags. For a managed secret it always binds the declared variable to the whole value, and
+    additionally binds <code>&lt;VAR&gt;_USERNAME</code> and <code>&lt;VAR&gt;_PASSWORD</code>.</p>
+</div>

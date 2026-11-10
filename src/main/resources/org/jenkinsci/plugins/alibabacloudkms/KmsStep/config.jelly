@@ -1,0 +1,17 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form">
+    <f:description>
+        Secret values are masked on a best-effort basis to prevent <em>accidental</em> disclosure.
+        Masking matches the literal value line by line, so a value that spans more than one log line —
+        a private key bound as <em>Secret</em> rather than <em>File</em> and echoed verbatim — is never
+        matched.
+    </f:description>
+
+    <f:entry title="Override Endpoint" field="endpoint">
+        <f:textbox/>
+    </f:entry>
+
+    <f:entry>
+        <f:repeatableProperty field="secrets" minimum="1" header="Alibaba Cloud KMS Secret"/>
+    </f:entry>
+</j:jelly>

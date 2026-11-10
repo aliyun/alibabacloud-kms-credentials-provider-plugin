@@ -1,0 +1,28 @@
+<div>
+    How long, in seconds, a retrieved secret <em>value</em> is cached before the next read goes back to
+    KMS. This applies to every credential type, including a managed username/password pair. Set it to
+    <code>0</code> to never cache: every read is then served live from KMS. The value can also come from
+    the <code>ALIBABA_CLOUD_KMS_CACHE_SECONDS</code> environment variable or the
+    <code>jenkins.alibabacloud-kms.cacheSeconds</code> system property, which take precedence over this
+    field — a value typed here has no effect while either is set.
+
+    <p>A rotated secret is picked up sooner than this lifetime regardless of its value, because the
+    credential object is keyed on the secret's <code>updateTime</code>: a rotation builds a fresh
+    credential that reads live rather than reusing a cached value. The lifetime only bounds how long
+    repeated reads of an <em>unchanged</em> secret are served from cache — which is what keeps credential
+    dropdowns cheap, since Jenkins resolves the value while rendering every entry. At <code>0</code> each
+    of those renders costs a KMS call.</p>
+
+    <p>Credential discovery has its own fixed 30-second window, which this setting does not change. A
+    lookup after that window reloads the list in the background and returns the previous result
+    meanwhile, so new secrets, deletions and mapping-tag changes appear on the next lookup rather than
+    blocking the one that triggers them. Only the very first lookup for a given configuration waits on
+    KMS. A controller that stops looking credentials up altogether drops the entry after five minutes,
+    and its next lookup blocks on a fresh one.</p>
+
+    <p>A failed read of a managed secret is remembered for 30 seconds before it is retried, even at a
+    <code>0</code> lifetime, so an outage costs one timeout per secret rather than one per dropdown entry
+    or binding.</p>
+
+    <p>Reload cache discards both the cached values and the discovery result.</p>
+</div>

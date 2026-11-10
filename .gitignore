@@ -1,0 +1,10 @@
+.tmp
+.idea
+.vscode
+target
+.DS_Store
+.qoder
+
+# Names the KMS environment a local acceptance run writes to. Copy kms-acceptance.template.properties
+# to this path and fill it in; the template is the tracked half of the pair.
+src/test/resources/kms-acceptance.properties
